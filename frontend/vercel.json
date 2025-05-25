@@ -2,8 +2,5 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
-  "installCommand": "npm install",
-  "env": {
-    "NEXT_PUBLIC_BACKEND_URL": "https://whatsapp-message-scheduler-production.up.railway.app"
-  }
+  "installCommand": "npm install"
 } 
