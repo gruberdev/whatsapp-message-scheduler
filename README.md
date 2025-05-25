@@ -2,6 +2,11 @@
 
 A modern WhatsApp message scheduling application built with a **Next.js frontend** and **NestJS backend** architecture.
 
+## 🚀 Live Demo
+
+- **Frontend**: [https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app](https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app)
+- **Backend API**: [https://whatsapp-message-scheduler-production.up.railway.app/api](https://whatsapp-message-scheduler-production.up.railway.app/api)
+
 ## 🏗️ Architecture
 
 This is a monorepo containing two applications:
@@ -17,6 +22,10 @@ This is a monorepo containing two applications:
 - 🔐 **Session Management**: Persistent WhatsApp sessions with LocalAuth
 - 📡 **RESTful API**: Clean API endpoints for WhatsApp operations
 - 🚀 **TypeScript**: Full type safety across frontend and backend
+- 🎯 **Message Scheduling** - Schedule WhatsApp messages for future delivery
+- 📊 **Session Management** - Handle multiple WhatsApp sessions
+- 🔄 **Auto-reconnection** - Automatic session recovery and reconnection
+- 🌐 **Cross-platform** - Works on desktop and mobile browsers
 
 ## 🚀 Quick Start
 
@@ -152,17 +161,51 @@ FRONTEND_URL=http://localhost:3000
 
 ## 🚀 Deployment
 
-### Frontend (Vercel)
-1. Connect your repository to Vercel
-2. Set the root directory to `frontend`
-3. Add environment variables:
-   - `BACKEND_URL=https://your-backend-url.com`
+### Backend (Railway)
 
-### Backend (Railway/Heroku)
-1. Deploy the `backend` directory
-2. Add environment variables:
-   - `PORT=3001`
-   - `FRONTEND_URL=https://your-frontend-url.com`
+The backend is deployed on Railway with the following configuration:
+
+```bash
+# Deploy to Railway
+./deploy-railway.sh
+```
+
+**Environment Variables:**
+- `PORT=3001`
+- `NODE_ENV=production`
+- `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true`
+- `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser`
+- `FRONTEND_URL=https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app`
+
+### Frontend (Vercel)
+
+The frontend is deployed on Vercel with automatic deployments from the main branch.
+
+```bash
+# Deploy to Vercel
+cd frontend
+vercel --prod
+```
+
+**Environment Variables:**
+- `BACKEND_URL=https://whatsapp-message-scheduler-production.up.railway.app`
+
+### Manual Deployment
+
+1. **Backend to Railway:**
+   ```bash
+   cd backend
+   railway login
+   railway link
+   railway up
+   ```
+
+2. **Frontend to Vercel:**
+   ```bash
+   cd frontend
+   vercel login
+   vercel --prod
+   ```
 
 ## 🤝 Contributing
 
