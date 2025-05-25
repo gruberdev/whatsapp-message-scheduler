@@ -15,6 +15,7 @@ const eslintConfig = [
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "@next/next/no-img-element": "warn",
+      "react-hooks/rules-of-hooks": "off", // Disable for API routes that use Baileys
     },
   },
 ];

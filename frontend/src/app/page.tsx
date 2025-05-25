@@ -14,13 +14,16 @@ export default function Home() {
   const [sessionId] = useState(() => `session-${Date.now()}`);
   const [isPolling, setIsPolling] = useState(false);
 
+  // Get backend URL from environment
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+
   // Poll for QR code and status updates
   useEffect(() => {
     let pollInterval: NodeJS.Timeout;
 
     const pollWhatsAppStatus = async () => {
       try {
-        const response = await fetch(`/api/whatsapp/qr?sessionId=${sessionId}`);
+        const response = await fetch(`${backendUrl}/api/whatsapp/qr?sessionId=${sessionId}`);
         const data: WhatsAppStatus = await response.json();
         
         setWhatsappStatus(data);
@@ -47,7 +50,7 @@ export default function Home() {
         clearInterval(pollInterval);
       }
     };
-  }, [sessionId, isPolling, whatsappStatus.status]);
+  }, [sessionId, isPolling, whatsappStatus.status, backendUrl]);
 
   // Start polling when component mounts
   useEffect(() => {

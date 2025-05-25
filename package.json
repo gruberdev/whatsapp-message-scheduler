@@ -2,34 +2,28 @@
   "name": "whatsapp-message-scheduler",
   "version": "0.1.0",
   "private": true,
+  "description": "WhatsApp Message Scheduler - A monorepo with Next.js frontend and NestJS backend",
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "@types/qrcode": "^1.5.5",
-    "autoprefixer": "^10.4.21",
-    "daisyui": "^5.0.37",
-    "fluent-ffmpeg": "2.1.2",
-    "next": "15.3.2",
-    "postcss": "^8.5.3",
-    "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-qr-code": "^2.0.15",
-    "tailwindcss": "^3.4.17",
-    "whatsapp-web.js": "^1.28.0"
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run start:dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:frontend": "cd frontend && npm run start",
+    "start:backend": "cd backend && npm run start:prod",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "lint": "npm run lint:frontend && npm run lint:backend",
+    "lint:frontend": "cd frontend && npm run lint",
+    "lint:backend": "cd backend && npm run lint",
+    "test:setup": "node test-setup.js"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "15.3.2",
-    "typescript": "^5"
-  }
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ]
 }

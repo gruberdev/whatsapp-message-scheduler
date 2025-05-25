@@ -1,23 +1,29 @@
-# WhatsApp Message Scheduler 📱⏰
+# WhatsApp Message Scheduler
 
-A modern web application that allows users to schedule WhatsApp messages using real WhatsApp Web integration. Built with Next.js 15, TypeScript, and Tailwind CSS.
+A modern WhatsApp message scheduling application built with a **Next.js frontend** and **NestJS backend** architecture.
+
+## 🏗️ Architecture
+
+This is a monorepo containing two applications:
+
+- **Frontend** (`/frontend`): Next.js 15 with React 19, TypeScript, Tailwind CSS, and DaisyUI
+- **Backend** (`/backend`): NestJS with WhatsApp Web.js integration, WebSocket support, and TypeScript
 
 ## ✨ Features
 
-- **Real WhatsApp Integration**: Uses `whatsapp-web.js` for authentic WhatsApp Web connection
-- **QR Code Authentication**: Scan QR code with your phone to connect your WhatsApp account
-- **Modern UI**: Beautiful interface built with DaisyUI and Tailwind CSS
-- **TypeScript**: Full type safety throughout the application
-- **Real-time Status**: Live connection status updates
-- **Session Management**: Persistent WhatsApp sessions with automatic cleanup
+- 📱 **WhatsApp Web Integration**: Real WhatsApp QR code authentication using `whatsapp-web.js`
+- 🔄 **Real-time Updates**: WebSocket connection for live status updates
+- 🎨 **Modern UI**: Beautiful interface built with DaisyUI and Tailwind CSS
+- 🔐 **Session Management**: Persistent WhatsApp sessions with LocalAuth
+- 📡 **RESTful API**: Clean API endpoints for WhatsApp operations
+- 🚀 **TypeScript**: Full type safety across frontend and backend
 
-## 🚀 Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Node.js 18+ 
 - npm or yarn
-- A WhatsApp account
 
 ### Installation
 
@@ -27,102 +33,136 @@ A modern web application that allows users to schedule WhatsApp messages using r
    cd whatsapp-message-scheduler
    ```
 
-2. **Install dependencies**
+2. **Install all dependencies**
    ```bash
-   npm install
+   npm run install:all
    ```
 
-3. **Run the development server**
+3. **Start both applications**
    ```bash
    npm run dev
    ```
 
-4. **Open your browser**
-   Navigate to [http://localhost:3000](http://localhost:3000)
+   Or test the setup with our verification script:
+   ```bash
+   npm run test:setup
+   ```
 
-## 📱 How to Use
-
-1. **Launch the Application**
-   - Open the app in your browser
-   - You'll see a WhatsApp-style login interface
-
-2. **Connect Your WhatsApp**
-   - Wait for the QR code to generate (may take 10-20 seconds)
-   - Open WhatsApp on your phone
-   - Go to Settings > Linked Devices > Link a Device
-   - Scan the QR code displayed on the screen
-
-3. **Authentication**
-   - Once scanned, the app will authenticate and connect
-   - Status will change from "Generating QR Code..." to "Ready"
-   - Your WhatsApp account is now connected!
-
-## 🛠️ Tech Stack
-
-- **Frontend**: Next.js 15, React 19, TypeScript
-- **Styling**: Tailwind CSS, DaisyUI
-- **WhatsApp Integration**: whatsapp-web.js
-- **QR Code Generation**: qrcode library
-- **Browser Automation**: Puppeteer (headless)
+This will start:
+- Frontend on `http://localhost:3000`
+- Backend on `http://localhost:3001`
 
 ## 📁 Project Structure
 
 ```
-src/
-├── app/
-│   ├── api/whatsapp/          # WhatsApp API endpoints
-│   │   ├── qr/route.ts        # QR code generation and status
-│   │   ├── status/route.ts    # Connection status
-│   │   └── send/route.ts      # Message sending
-│   ├── globals.css            # Global styles
-│   └── page.tsx               # Main application page
-├── lib/
-│   └── whatsapp-service.ts    # WhatsApp service layer
-└── components/                # Reusable components (future)
+whatsapp-message-scheduler/
+├── frontend/                 # Next.js frontend application
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── page.tsx     # Main WhatsApp QR login page
+│   │   │   └── layout.tsx   # App layout
+│   │   └── ...
+│   ├── package.json
+│   ├── next.config.ts
+│   └── tailwind.config.js
+├── backend/                  # NestJS backend application
+│   ├── src/
+│   │   ├── whatsapp/        # WhatsApp module
+│   │   │   ├── whatsapp.service.ts    # WhatsApp Web.js service
+│   │   │   ├── whatsapp.controller.ts # REST API endpoints
+│   │   │   └── whatsapp.gateway.ts    # WebSocket gateway
+│   │   ├── app.module.ts
+│   │   └── main.ts
+│   └── package.json
+├── package.json              # Root package.json with monorepo scripts
+└── README.md
 ```
 
-## 🔧 API Endpoints
-
-- `GET /api/whatsapp/qr` - Generate QR code and get connection status
-- `GET /api/whatsapp/status` - Check current connection status  
-- `POST /api/whatsapp/send` - Send WhatsApp messages
-
-## 🎨 UI Components
-
-The application features a WhatsApp Web-inspired design with:
-- **Loading States**: Smooth transitions and loading indicators
-- **QR Code Display**: Clean, scannable QR code presentation
-- **Status Updates**: Real-time connection status
-- **Responsive Design**: Works on desktop and mobile devices
-
-## 🔒 Security & Privacy
-
-- **Local Authentication**: WhatsApp credentials stored locally using LocalAuth
-- **No Data Storage**: Messages and contacts are not stored on our servers
-- **Session Management**: Automatic cleanup of inactive sessions
-- **Secure Connection**: Uses official WhatsApp Web protocol
-
-## 🚧 Development
+## 🛠️ Development
 
 ### Available Scripts
 
-- `npm run dev` - Start development server with Turbopack
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
+**Root level scripts:**
+- `npm run dev` - Start both frontend and backend in development mode
+- `npm run build` - Build both applications for production
+- `npm run start` - Start both applications in production mode
+- `npm run lint` - Lint both applications
+- `npm run test:setup` - Test the setup and start both applications with verification
 
-### Environment Setup
+**Frontend specific:**
+- `npm run dev:frontend` - Start only the frontend
+- `npm run build:frontend` - Build only the frontend
+- `npm run lint:frontend` - Lint only the frontend
 
-The application uses dynamic imports to handle WhatsApp Web.js dependencies that are not compatible with browser environments. The Next.js configuration includes special webpack settings to handle these dependencies.
+**Backend specific:**
+- `npm run dev:backend` - Start only the backend
+- `npm run build:backend` - Build only the backend
+- `npm run lint:backend` - Lint only the backend
 
-## 📝 Future Features
+### Environment Variables
 
-- [ ] Message scheduling functionality
-- [ ] Contact management
-- [ ] Message templates
-- [ ] Bulk messaging
-- [ ] Analytics dashboard
-- [ ] Message history
+Create `.env` files in the respective directories:
+
+**Frontend** (`frontend/.env.local`):
+```env
+BACKEND_URL=http://localhost:3001
+```
+
+**Backend** (`backend/.env`):
+```env
+PORT=3001
+FRONTEND_URL=http://localhost:3000
+```
+
+## 🔌 API Endpoints
+
+### WhatsApp API (`/api/whatsapp`)
+
+- `GET /api/whatsapp/qr?sessionId=<id>` - Get QR code for WhatsApp authentication
+- `GET /api/whatsapp/status?sessionId=<id>` - Get session status
+- `GET /api/whatsapp/sessions` - Get all active sessions
+- `POST /api/whatsapp/send` - Send a WhatsApp message
+- `POST /api/whatsapp/disconnect` - Disconnect a session
+
+### WebSocket Events
+
+- `join-session` - Join a session room for real-time updates
+- `leave-session` - Leave a session room
+- `get-session-status` - Get current session status
+- `session-status` - Receive session status updates
+- `message-status` - Receive message delivery status
+
+## 🔧 Technology Stack
+
+### Frontend
+- **Next.js 15** - React framework with App Router
+- **React 19** - Latest React with concurrent features
+- **TypeScript** - Type safety
+- **Tailwind CSS** - Utility-first CSS framework
+- **DaisyUI** - Beautiful UI components
+- **Socket.IO Client** - Real-time communication
+
+### Backend
+- **NestJS** - Progressive Node.js framework
+- **WhatsApp Web.js** - WhatsApp Web API library
+- **Socket.IO** - Real-time bidirectional communication
+- **QRCode** - QR code generation
+- **TypeScript** - Type safety
+- **Puppeteer** - Headless Chrome for WhatsApp Web
+
+## 🚀 Deployment
+
+### Frontend (Vercel)
+1. Connect your repository to Vercel
+2. Set the root directory to `frontend`
+3. Add environment variables:
+   - `BACKEND_URL=https://your-backend-url.com`
+
+### Backend (Railway/Heroku)
+1. Deploy the `backend` directory
+2. Add environment variables:
+   - `PORT=3001`
+   - `FRONTEND_URL=https://your-frontend-url.com`
 
 ## 🤝 Contributing
 
@@ -132,13 +172,13 @@ The application uses dynamic imports to handle WhatsApp Web.js dependencies that
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
+## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## ⚠️ Disclaimer
 
-This project is for educational purposes. Please ensure you comply with WhatsApp's Terms of Service when using this application. The developers are not responsible for any misuse of this software.
+This project uses WhatsApp Web.js which automates WhatsApp Web. Use responsibly and in accordance with WhatsApp's Terms of Service. The developers are not responsible for any misuse of this software.
 
 ## 🙏 Acknowledgments
 
