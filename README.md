@@ -4,7 +4,7 @@ A modern WhatsApp message scheduling application built with a **Next.js frontend
 
 ## 🚀 Live Demo
 
-- **Frontend**: [https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app](https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app)
+- **Frontend**: [https://whatsapp-message-scheduler-phc02ouo8-dibpuelmas-projects.vercel.app](https://whatsapp-message-scheduler-phc02ouo8-dibpuelmas-projects.vercel.app)
 - **Backend API**: [https://whatsapp-message-scheduler-production.up.railway.app/api](https://whatsapp-message-scheduler-production.up.railway.app/api)
 
 ## 🏗️ Architecture
@@ -175,7 +175,7 @@ The backend is deployed on Railway with the following configuration:
 - `NODE_ENV=production`
 - `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true`
 - `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser`
-- `FRONTEND_URL=https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app`
+- `FRONTEND_URL=https://whatsapp-message-scheduler-phc02ouo8-dibpuelmas-projects.vercel.app`
 
 ### Frontend (Vercel)
 

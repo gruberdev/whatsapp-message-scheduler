@@ -15,7 +15,7 @@ export default function Home() {
   const [isPolling, setIsPolling] = useState(false);
 
   // Get backend URL from environment
-  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
   // Poll for QR code and status updates
   useEffect(() => {

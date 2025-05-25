@@ -27,8 +27,8 @@ echo ""
 
 # Frontend (Vercel)
 echo "🌐 Frontend (Vercel):"
-echo "URL: https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app"
-FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app")
+echo "URL: https://whatsapp-message-scheduler-phc02ouo8-dibpuelmas-projects.vercel.app"
+FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://whatsapp-message-scheduler-phc02ouo8-dibpuelmas-projects.vercel.app")
 if [ "$FRONTEND_STATUS" = "200" ]; then
     echo "✅ Frontend is UP (Status: $FRONTEND_STATUS)"
 else
@@ -39,5 +39,5 @@ echo ""
 echo "=================================================="
 echo "🎉 Deployment check complete!"
 echo ""
-echo "📱 Access your app: https://whatsapp-message-scheduler-n197947eu-dibpuelmas-projects.vercel.app"
+echo "📱 Access your app: https://whatsapp-message-scheduler-phc02ouo8-dibpuelmas-projects.vercel.app"
 echo "📡 API Documentation: https://whatsapp-message-scheduler-production.up.railway.app/api" 
