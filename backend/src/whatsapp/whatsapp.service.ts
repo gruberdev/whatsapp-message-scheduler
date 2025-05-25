@@ -4,7 +4,7 @@ import * as QRCode from 'qrcode';
 
 export interface WhatsAppSession {
   id: string;
-  status: 'connecting' | 'qr' | 'ready' | 'disconnected';
+  status: 'connecting' | 'qr' | 'authenticating' | 'ready' | 'disconnected';
   client?: Client;
   qrCode?: string;
 }
@@ -81,6 +81,8 @@ export class WhatsappService {
 
       client.on('authenticated', () => {
         this.logger.log(`WhatsApp client authenticated for session: ${sessionId}`);
+        session.status = 'authenticating';
+        session.qrCode = undefined; // Clear QR code once authenticated
       });
 
       client.on('auth_failure', (msg: any) => {

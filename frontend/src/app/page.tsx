@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 
 interface WhatsAppStatus {
-  status: 'connecting' | 'qr' | 'ready' | 'disconnected';
+  status: 'connecting' | 'qr' | 'authenticating' | 'ready' | 'disconnected';
   qrCode?: string;
   sessionId?: string;
 }
@@ -32,6 +32,11 @@ export default function Home() {
         if (data.status === 'ready' || data.status === 'disconnected') {
           setIsPolling(false);
         }
+        
+        // Continue polling for authenticating state
+        if (data.status === 'authenticating') {
+          setIsPolling(true);
+        }
       } catch (error) {
         console.error('Error polling WhatsApp status:', error);
         setWhatsappStatus({ status: 'disconnected' });
@@ -39,7 +44,7 @@ export default function Home() {
       }
     };
 
-    if (isPolling || whatsappStatus.status === 'connecting') {
+    if (isPolling || whatsappStatus.status === 'connecting' || whatsappStatus.status === 'authenticating') {
       setIsPolling(true);
       pollWhatsAppStatus(); // Initial call
       pollInterval = setInterval(pollWhatsAppStatus, 2000); // Poll every 2 seconds
@@ -70,6 +75,59 @@ export default function Home() {
     setWhatsappStatus({ status: 'connecting' });
     setIsPolling(true);
   };
+
+  // Authenticating state - QR code scanned, waiting for connection
+  if (whatsappStatus.status === 'authenticating') {
+    return (
+      <div className="min-h-screen bg-base-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">📱</div>
+          <h1 className="text-3xl font-bold text-primary mb-4">QR Code Scanned!</h1>
+          <p className="text-lg mb-6 text-base-content/70">
+            Great! We detected that you scanned the QR code.<br/>
+            Please wait while we establish the connection...
+          </p>
+          <div className="flex flex-col items-center space-y-4">
+            <span className="loading loading-spinner loading-lg text-primary"></span>
+            <p className="text-sm text-base-content/60">
+              Authenticating with WhatsApp...
+            </p>
+            <div className="text-xs text-base-content/40">
+              Session: {sessionId}
+            </div>
+          </div>
+          
+          {/* Progress steps */}
+          <div className="mt-8 max-w-md mx-auto">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex flex-col items-center">
+                <div className="w-8 h-8 bg-success rounded-full flex items-center justify-center mb-2">
+                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <span className="text-success font-medium">QR Scanned</span>
+              </div>
+              <div className="flex-1 h-0.5 bg-primary mx-4"></div>
+              <div className="flex flex-col items-center">
+                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center mb-2">
+                  <span className="loading loading-spinner loading-sm text-white"></span>
+                </div>
+                <span className="text-primary font-medium">Connecting</span>
+              </div>
+              <div className="flex-1 h-0.5 bg-base-300 mx-4"></div>
+              <div className="flex flex-col items-center">
+                <div className="w-8 h-8 bg-base-300 rounded-full flex items-center justify-center mb-2">
+                  <span className="text-base-content/40">3</span>
+                </div>
+                <span className="text-base-content/40">Ready</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Success state
   if (whatsappStatus.status === 'ready') {
@@ -128,6 +186,8 @@ export default function Home() {
                     <p className="mt-4 text-base-content/70">Setting up your WhatsApp connection...</p>
                   </div>
                 )}
+
+
 
                 {whatsappStatus.status === 'qr' && (
                   <>
@@ -281,7 +341,7 @@ export default function Home() {
             </svg>
             <span>Your personal messages are end-to-end encrypted</span>
           </div>
-          {whatsappStatus.status !== 'connecting' && (
+          {(whatsappStatus.status === 'qr' || whatsappStatus.status === 'disconnected') && (
             <div className="mt-2 text-xs text-base-content/40">
               Session: {sessionId} • Status: {whatsappStatus.status}
             </div>

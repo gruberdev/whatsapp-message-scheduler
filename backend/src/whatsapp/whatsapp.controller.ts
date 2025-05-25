@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Query, HttpException, HttpStatus } from '@
 import { WhatsappService, WhatsAppSession } from './whatsapp.service';
 
 interface QRResponse {
-  status: 'connecting' | 'qr' | 'ready' | 'disconnected';
+  status: 'connecting' | 'qr' | 'authenticating' | 'ready' | 'disconnected';
   qrCode?: string;
   sessionId: string;
   message?: string;
