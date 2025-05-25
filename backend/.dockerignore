@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+.env
+.nyc_output
+coverage
+.nyc_output
+.DS_Store
+*.log
+dist
+.wwebjs_auth
+.wwebjs_cache
+auth_info_* 
