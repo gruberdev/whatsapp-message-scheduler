@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, webpack }) => {
     if (isServer) {
       // Mark problematic packages as external for server-side
       config.externals = config.externals || [];
@@ -40,7 +40,7 @@ const nextConfig: NextConfig = {
     // Ignore specific modules that cause build issues
     config.plugins = config.plugins || [];
     config.plugins.push(
-      new config.webpack.IgnorePlugin({
+      new webpack.IgnorePlugin({
         resourceRegExp: /^(fluent-ffmpeg|@ffmpeg-installer\/ffmpeg)$/,
       })
     );
