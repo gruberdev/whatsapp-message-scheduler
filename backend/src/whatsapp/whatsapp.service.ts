@@ -121,9 +121,16 @@ export class WhatsappService {
           session.qrCode = qrCodeDataUrl;
           session.status = 'qr';
           
-          this.logger.log(`QR Code generated for session: ${sessionId}`);
+          this.logger.log(`QR Code generated for session: ${sessionId}`, {
+            qrLength: qrCodeDataUrl.length,
+            status: session.status,
+            hasQR: !!session.qrCode
+          });
         } catch (error) {
           this.logger.error('Error generating QR code:', error);
+          // Set a fallback QR code status without the actual QR
+          session.status = 'qr';
+          session.qrCode = null;
         }
       });
 
@@ -161,6 +168,12 @@ export class WhatsappService {
 
       // Initialize the client
       this.logger.log(`Initializing WhatsApp client for session: ${sessionId}`);
+      this.logger.debug('Current session state:', {
+        sessionId,
+        status: session.status,
+        hasQR: !!session.qrCode,
+        hasClient: !!session.client
+      });
       
       // Set a timeout to prevent getting stuck in connecting state
       const initTimeout = setTimeout(() => {
@@ -193,7 +206,15 @@ export class WhatsappService {
   }
 
   getSession(sessionId: string): WhatsAppSession | undefined {
-    return this.sessions.get(sessionId);
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      return {
+        id: session.id,
+        status: session.status,
+        qrCode: session.qrCode
+      };
+    }
+    return undefined;
   }
 
   getAllSessions(): WhatsAppSession[] {
@@ -201,7 +222,6 @@ export class WhatsappService {
       id: session.id,
       status: session.status,
       qrCode: session.qrCode
-      // Exclude client object as it's not serializable
     }));
   }
 
