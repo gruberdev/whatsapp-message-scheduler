@@ -274,7 +274,7 @@ export class WhatsappService {
     }
   }
 
-  async getChats(sessionId: string, offset: number = 0, limit: number = 20): Promise<{ chats: WhatsAppChat[], hasMore: boolean, total: number }> {
+  async getChats(sessionId: string, offset: number = 0, limit: number = 20, archived: boolean = false): Promise<{ chats: WhatsAppChat[], hasMore: boolean, total: number }> {
     const session = this.sessions.get(sessionId);
     
     if (!session || !session.client || session.status !== 'ready') {
@@ -285,7 +285,7 @@ export class WhatsappService {
       this.logger.log(`Getting chats for session ${sessionId} (offset: ${offset}, limit: ${limit})`);
       
       let allChats: any[];
-      const cacheKey = sessionId;
+      const cacheKey = `${sessionId}-${archived ? 'archived' : 'normal'}`;
       const cached = this.chatCache.get(cacheKey);
       const cacheAge = cached ? Date.now() - cached.timestamp : Infinity;
       const CACHE_DURATION = 120000; // 2 minutes cache to reduce WhatsApp API calls
@@ -315,7 +315,6 @@ export class WhatsappService {
         
         // Add timeout to prevent hanging
         const FETCH_TIMEOUT = 15000; // Increased to 15 seconds to give WhatsApp more time
-        const fetchChatsPromise = session.client.getChats();
         
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => {
@@ -324,9 +323,13 @@ export class WhatsappService {
         });
         
         try {
-          this.logger.log(`Starting to fetch chats for session ${sessionId}...`);
+          this.logger.log(`Starting to fetch ${archived ? 'archived' : 'normal'} chats for session ${sessionId}...`);
+          const fetchChatsPromise = archived ? 
+            session.client.getChats().then((chats: any[]) => chats.filter((chat: any) => chat.archived)) :
+            session.client.getChats().then((chats: any[]) => chats.filter((chat: any) => !chat.archived));
+          
           allChats = await Promise.race([fetchChatsPromise, timeoutPromise]) as any[];
-          this.logger.log(`Successfully fetched ${allChats.length} total chats from WhatsApp`);
+          this.logger.log(`Successfully fetched ${allChats.length} total ${archived ? 'archived' : 'normal'} chats from WhatsApp`);
           
           // Reset rate limiting on successful fetch
           this.lastFetchTime.set(sessionId, Date.now());

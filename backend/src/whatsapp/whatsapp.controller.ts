@@ -140,14 +140,16 @@ export class WhatsappController {
   async getChats(
     @Query('sessionId') sessionId?: string,
     @Query('offset') offset?: string,
-    @Query('limit') limit?: string
+    @Query('limit') limit?: string,
+    @Query('archived') archived?: string
   ): Promise<{ chats: WhatsAppChat[], hasMore: boolean, total: number }> {
     const id = sessionId || 'default';
     const offsetNum = offset ? parseInt(offset, 10) : 0;
     const limitNum = limit ? parseInt(limit, 10) : 20;
+    const isArchived = archived === 'true';
     
     try {
-      return await this.whatsappService.getChats(id, offsetNum, limitNum);
+      return await this.whatsappService.getChats(id, offsetNum, limitNum, isArchived);
     } catch (error) {
       throw new HttpException({
         error: 'Failed to get chats',

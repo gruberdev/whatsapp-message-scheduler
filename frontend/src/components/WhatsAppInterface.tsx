@@ -39,16 +39,21 @@ interface WhatsAppInterfaceProps {
 
 export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppInterfaceProps) {
   const [chats, setChats] = useState<WhatsAppChat[]>([]);
+  const [archivedChats, setArchivedChats] = useState<WhatsAppChat[]>([]);
   const [selectedChat, setSelectedChat] = useState<WhatsAppChat | null>(null);
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoadingChats, setIsLoadingChats] = useState(true);
+  const [isLoadingArchivedChats, setIsLoadingArchivedChats] = useState(false);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [hasMoreChats, setHasMoreChats] = useState(true);
+  const [hasMoreArchivedChats, setHasMoreArchivedChats] = useState(true);
   const [totalChats, setTotalChats] = useState(0);
+  const [totalArchivedChats, setTotalArchivedChats] = useState(0);
   const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
+  const [showArchived, setShowArchived] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
@@ -61,10 +66,10 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     onDisconnect();
   };
 
-  // Load chats on component mount
+  // Load chats on component mount and when switching between normal/archived
   useEffect(() => {
-    loadChats();
-  }, [sessionId]);
+    loadChats(true, showArchived);
+  }, [sessionId, showArchived]);
 
   // Update messages when selected chat changes
   useEffect(() => {
@@ -73,17 +78,18 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     }
   }, [selectedChat?.id]);
 
-  // Polling for chat list updates every 10 seconds - reduced to avoid rate limits
+  // Polling for chat list updates every 30 seconds - reduced to avoid rate limits
   useEffect(() => {
     // Only start polling after we have initial chats loaded
-    if (chats.length === 0) return;
+    const currentChats = showArchived ? archivedChats : chats;
+    if (currentChats.length === 0) return;
     
     const interval = setInterval(() => {
       updateChats();
-    }, 10000); // Increased from 5s to 30s to reduce API calls
+    }, 30000); // Increased to 30s to reduce API calls
 
     return () => clearInterval(interval);
-  }, [sessionId, chats.length]); // Add chats.length as dependency
+  }, [sessionId, chats.length, archivedChats.length, showArchived]); // Add dependencies
 
   // Polling for message updates every 3 seconds (only when a chat is selected)
   useEffect(() => {
@@ -96,23 +102,31 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     }
   }, [selectedChat?.id]);
 
-  const loadChats = async (reset: boolean = true) => {
+  const loadChats = async (reset: boolean = true, archived: boolean = false) => {
+    const isArchived = archived || showArchived;
+    
     if (reset) {
-      setIsLoadingChats(true);
-      setChats([]);
+      if (isArchived) {
+        setIsLoadingArchivedChats(true);
+        setArchivedChats([]);
+      } else {
+        setIsLoadingChats(true);
+        setChats([]);
+      }
     } else {
       setIsLoadingMoreChats(true);
     }
     
     try {
-      const offset = reset ? 0 : chats.length;
-      const limit = reset ? 20 : 10; // Load 3 initially, then 3 more for maximum speed
+      const currentChats = isArchived ? archivedChats : chats;
+      const offset = reset ? 0 : currentChats.length;
+      const limit = reset ? 20 : 10;
       
       // Add timeout to frontend request
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
-      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=${offset}&limit=${limit}`, {
+      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=${offset}&limit=${limit}&archived=${isArchived}`, {
         signal: controller.signal
       });
       
@@ -122,13 +136,26 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
         const data = await response.json();
         
         if (reset) {
-          setChats(data.chats);
+          if (isArchived) {
+            setArchivedChats(data.chats);
+            setHasMoreArchivedChats(data.hasMore);
+            setTotalArchivedChats(data.total);
+          } else {
+            setChats(data.chats);
+            setHasMoreChats(data.hasMore);
+            setTotalChats(data.total);
+          }
         } else {
-          setChats(prevChats => [...prevChats, ...data.chats]);
+          if (isArchived) {
+            setArchivedChats(prevChats => [...prevChats, ...data.chats]);
+            setHasMoreArchivedChats(data.hasMore);
+            setTotalArchivedChats(data.total);
+          } else {
+            setChats(prevChats => [...prevChats, ...data.chats]);
+            setHasMoreChats(data.hasMore);
+            setTotalChats(data.total);
+          }
         }
-        
-        setHasMoreChats(data.hasMore);
-        setTotalChats(data.total);
       } else {
         const errorData = await response.json();
         console.error('Failed to load chats:', errorData);
@@ -149,7 +176,11 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
       }
     } finally {
       if (reset) {
-        setIsLoadingChats(false);
+        if (isArchived) {
+          setIsLoadingArchivedChats(false);
+        } else {
+          setIsLoadingChats(false);
+        }
       } else {
         setIsLoadingMoreChats(false);
       }
@@ -160,11 +191,12 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
   const updateChats = async () => {
     try {
       // Only update the first page of chats to avoid complexity with pagination
-      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=0&limit=2`);
+      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=0&limit=2&archived=${showArchived}`);
       if (response.ok) {
         const data = await response.json();
         
-        setChats(prevChats => {
+        const setCurrentChats = showArchived ? setArchivedChats : setChats;
+        setCurrentChats(prevChats => {
           // If no previous chats, just set the new ones (shouldn't happen in polling)
           if (prevChats.length === 0) {
             return data.chats;
@@ -225,8 +257,13 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
         });
         
         // Update pagination info
-        setHasMoreChats(data.hasMore);
-        setTotalChats(data.total);
+        if (showArchived) {
+          setHasMoreArchivedChats(data.hasMore);
+          setTotalArchivedChats(data.total);
+        } else {
+          setHasMoreChats(data.hasMore);
+          setTotalChats(data.total);
+        }
       } else {
         const errorData = await response.json();
         console.error('Failed to update chats:', errorData);
@@ -394,8 +431,9 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     
     // Load more chats when user scrolls near the bottom
-    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMoreChats && !isLoadingMoreChats) {
-      loadChats(false);
+    const hasMore = showArchived ? hasMoreArchivedChats : hasMoreChats;
+    if (scrollHeight - scrollTop <= clientHeight * 1.5 && hasMore && !isLoadingMoreChats) {
+      loadChats(false, showArchived);
     }
   };
 
@@ -540,9 +578,24 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
       {/* Left Sidebar */}
       <div className="w-16 bg-[#202c33] flex flex-col items-center py-4 border-r border-[#2a3942]">
         {/* Chat Icon */}
-        <button className="w-10 h-10 bg-[#00a884] hover:bg-[#00a884]/90 rounded-lg flex items-center justify-center mb-4 transition-colors">
+        <button 
+          onClick={() => setShowArchived(false)}
+          className={`w-10 h-10 ${!showArchived ? 'bg-[#00a884]' : 'bg-[#3b4a54]'} hover:bg-[#00a884]/90 rounded-lg flex items-center justify-center mb-4 transition-colors`}
+          title="Chats"
+        >
           <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
             <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+          </svg>
+        </button>
+
+        {/* Archived Icon */}
+        <button 
+          onClick={() => setShowArchived(true)}
+          className={`w-10 h-10 ${showArchived ? 'bg-[#00a884]' : 'bg-[#3b4a54]'} hover:bg-[#00a884]/90 rounded-lg flex items-center justify-center mb-4 transition-colors`}
+          title="Archived"
+        >
+          <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/>
           </svg>
         </button>
         
@@ -563,20 +616,20 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
         {/* Header */}
         <div className="p-4 border-b border-[#2a3942]">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-white">Chats</h2>
+            <h2 className="text-xl font-semibold text-white">{showArchived ? 'Archived' : 'Chats'}</h2>
             <div className="flex items-center gap-2">
-              {totalChats > 0 && (
+              {(showArchived ? totalArchivedChats : totalChats) > 0 && (
                 <span className="text-sm text-white/60">
-                  {chats.length} of {totalChats}
+                  {(showArchived ? archivedChats : chats).length} of {showArchived ? totalArchivedChats : totalChats}
                 </span>
               )}
               <button
-                onClick={() => loadChats(true)}
-                disabled={isLoadingChats}
+                onClick={() => loadChats(true, showArchived)}
+                disabled={showArchived ? isLoadingArchivedChats : isLoadingChats}
                 className="w-8 h-8 bg-[#00a884] hover:bg-[#00a884]/90 disabled:bg-[#3b4a54] disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-colors"
                 title="Refresh chats"
               >
-                {isLoadingChats ? (
+                {(showArchived ? isLoadingArchivedChats : isLoadingChats) ? (
                   <span className="loading loading-spinner loading-xs text-white"></span>
                 ) : (
                   <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -590,18 +643,18 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
 
         {/* Chat List */}
         <div className="flex-1 overflow-y-auto" onScroll={handleChatListScroll}>
-          {isLoadingChats ? (
+          {(showArchived ? isLoadingArchivedChats : isLoadingChats) ? (
             <div className="p-4 text-center">
               <span className="loading loading-spinner loading-md text-white"></span>
-              <p className="mt-2 text-sm text-white/60">Loading chats...</p>
+              <p className="mt-2 text-sm text-white/60">Loading {showArchived ? 'archived ' : ''}chats...</p>
             </div>
-          ) : chats.length === 0 ? (
+          ) : (showArchived ? archivedChats : chats).length === 0 ? (
             <div className="p-4 text-center">
-              <p className="text-white/60">No chats found</p>
+              <p className="text-white/60">No {showArchived ? 'archived ' : ''}chats found</p>
             </div>
           ) : (
             <>
-              {chats.map((chat) => (
+              {(showArchived ? archivedChats : chats).map((chat) => (
                 <div
                   key={chat.id}
                   onClick={() => handleChatSelect(chat)}
@@ -647,15 +700,15 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
               {isLoadingMoreChats && (
                 <div className="p-4 text-center">
                   <span className="loading loading-spinner loading-sm text-white"></span>
-                  <p className="mt-2 text-xs text-white/60">Loading more chats...</p>
+                  <p className="mt-2 text-xs text-white/60">Loading more {showArchived ? 'archived ' : ''}chats...</p>
                 </div>
               )}
               
               {/* End of chats indicator */}
-              {!hasMoreChats && chats.length > 0 && (
+              {!(showArchived ? hasMoreArchivedChats : hasMoreChats) && (showArchived ? archivedChats : chats).length > 0 && (
                 <div className="p-4 text-center">
                   <p className="text-xs text-white/40">
-                    Showing all {totalChats} chats
+                    Showing all {showArchived ? totalArchivedChats : totalChats} {showArchived ? 'archived ' : ''}chats
                   </p>
                 </div>
               )}
