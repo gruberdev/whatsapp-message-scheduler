@@ -19,7 +19,9 @@ export class WhatsappService {
 
     // Check if session already exists
     if (this.sessions.has(sessionId)) {
-      return this.sessions.get(sessionId);
+      const existingSession = this.sessions.get(sessionId);
+      this.logger.log(`Returning existing session: ${sessionId} with status: ${existingSession.status}`);
+      return existingSession;
     }
 
     // Create new session
@@ -98,6 +100,12 @@ export class WhatsappService {
 
       // Initialize the client
       await client.initialize();
+
+      // Check if client is already authenticated (for session restoration)
+      if (client.info) {
+        this.logger.log(`Session ${sessionId} restored from existing authentication`);
+        session.status = 'ready';
+      }
 
     } catch (error) {
       this.logger.error('Error creating WhatsApp client:', error);

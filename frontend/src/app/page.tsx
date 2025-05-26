@@ -11,7 +11,22 @@ interface WhatsAppStatus {
 export default function Home() {
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({ status: 'connecting' });
   const [stayLoggedIn, setStayLoggedIn] = useState(true);
-  const [sessionId] = useState(() => `session-${Date.now()}`);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [sessionId] = useState(() => {
+    // Try to get existing session from localStorage first
+    if (typeof window !== 'undefined') {
+      const existingSession = localStorage.getItem('whatsapp-session-id');
+      if (existingSession) {
+        return existingSession;
+      }
+    }
+    // Generate new session ID if none exists
+    const newSessionId = `session-${Date.now()}`;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('whatsapp-session-id', newSessionId);
+    }
+    return newSessionId;
+  });
   const [isPolling, setIsPolling] = useState(false);
 
   // Get backend URL from environment
@@ -57,10 +72,34 @@ export default function Home() {
     };
   }, [sessionId, isPolling, whatsappStatus.status, backendUrl]);
 
-  // Start polling when component mounts
+  // Check for existing session and start polling when component mounts
   useEffect(() => {
-    setIsPolling(true);
-  }, []);
+    const checkExistingSession = async () => {
+      setIsCheckingSession(true);
+      try {
+        // Check if there's an existing session on the backend
+        const response = await fetch(`${backendUrl}/api/whatsapp/status?sessionId=${sessionId}`);
+        const data: WhatsAppStatus = await response.json();
+        
+        if (data.status === 'ready') {
+          // Session is already connected, update state
+          setWhatsappStatus(data);
+          setIsPolling(false);
+        } else {
+          // Start polling for new connection
+          setIsPolling(true);
+        }
+      } catch (error) {
+        console.error('Error checking existing session:', error);
+        // Start polling anyway
+        setIsPolling(true);
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+
+    checkExistingSession();
+  }, [sessionId, backendUrl]);
 
   const handlePhoneLogin = () => {
     alert('Phone number login would redirect to WhatsApp Web');
@@ -74,6 +113,29 @@ export default function Home() {
   const handleRetry = () => {
     setWhatsappStatus({ status: 'connecting' });
     setIsPolling(true);
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      // Call backend to disconnect the session
+      await fetch(`${backendUrl}/api/whatsapp/disconnect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+      
+      // Clear session from localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('whatsapp-session-id');
+      }
+      
+      // Reset to connecting state (will generate new session)
+      window.location.reload();
+    } catch (error) {
+      console.error('Error disconnecting session:', error);
+    }
   };
 
   // Authenticating state - QR code scanned, waiting for connection
@@ -141,6 +203,12 @@ export default function Home() {
             <button className="btn btn-primary btn-lg">
               Start Scheduling Messages
             </button>
+            <button 
+              className="btn btn-outline btn-error"
+              onClick={handleDisconnect}
+            >
+              Disconnect Session
+            </button>
             <div className="text-sm text-base-content/60">
               Session ID: {sessionId}
             </div>
@@ -183,7 +251,9 @@ export default function Home() {
                 {whatsappStatus.status === 'connecting' && (
                   <div className="text-center">
                     <span className="loading loading-spinner loading-lg text-primary"></span>
-                    <p className="mt-4 text-base-content/70">Setting up your WhatsApp connection...</p>
+                    <p className="mt-4 text-base-content/70">
+                      {isCheckingSession ? 'Checking for existing session...' : 'Setting up your WhatsApp connection...'}
+                    </p>
                   </div>
                 )}
 
