@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Client, LocalAuth, Chat, Message } from 'whatsapp-web.js';
+import { Client, LocalAuth, Chat, Message, MessageTypes } from 'whatsapp-web.js';
 import * as QRCode from 'qrcode';
 
 export interface WhatsAppSession {
@@ -32,6 +32,11 @@ export interface WhatsAppMessage {
   authorNumber?: string; // Formatted phone number (only for non-contacts)
   isContact?: boolean; // Whether the author is in user's contacts
   type: string;
+  mediaData?: {
+    data: string; // Base64 encoded media data
+    mimetype: string;
+    filename?: string;
+  };
 }
 
 @Injectable()
@@ -40,6 +45,7 @@ export class WhatsappService {
   private sessions = new Map<string, WhatsAppSession>();
   private lastSeenMessages = new Map<string, Map<string, number>>(); // sessionId -> chatId -> timestamp
   private chatCache = new Map<string, { chats: any[], timestamp: number }>(); // sessionId -> cached chats
+  private lastFetchTime = new Map<string, number>(); // sessionId -> last fetch timestamp for rate limiting
 
   constructor() {}
 
@@ -231,6 +237,8 @@ export class WhatsappService {
     }
     
     this.sessions.delete(sessionId);
+    this.chatCache.delete(sessionId); // Clear cache
+    this.lastFetchTime.delete(sessionId); // Clear rate limiting data
   }
 
   async forceCleanupSession(sessionId: string): Promise<void> {
@@ -248,6 +256,7 @@ export class WhatsappService {
     
     this.sessions.delete(sessionId);
     this.chatCache.delete(sessionId); // Clear cache too
+    this.lastFetchTime.delete(sessionId); // Clear rate limiting data
     this.logger.log(`Session ${sessionId} force cleaned up`);
   }
 
@@ -279,14 +288,20 @@ export class WhatsappService {
       const cacheKey = sessionId;
       const cached = this.chatCache.get(cacheKey);
       const cacheAge = cached ? Date.now() - cached.timestamp : Infinity;
-      const CACHE_DURATION = 15000; // 15 seconds cache for maximum responsiveness
+      const CACHE_DURATION = 120000; // 2 minutes cache to reduce WhatsApp API calls
       
-      // Use cache if it's fresh, otherwise fetch new data
-      if (cached && cacheAge < CACHE_DURATION) {
-        this.logger.log(`Using cached chats for session ${sessionId} (age: ${Math.round(cacheAge/1000)}s)`);
+      // Rate limiting: enforce minimum 30 seconds between fresh fetches
+      const lastFetch = this.lastFetchTime.get(sessionId) || 0;
+      const timeSinceLastFetch = Date.now() - lastFetch;
+      const MIN_FETCH_INTERVAL = 30000; // 30 seconds minimum between fetches
+      
+      // Use cache if it's fresh OR if we're being rate limited
+      if (cached && (cacheAge < CACHE_DURATION || timeSinceLastFetch < MIN_FETCH_INTERVAL)) {
+        const reason = cacheAge < CACHE_DURATION ? 'fresh cache' : 'rate limiting';
+        this.logger.log(`Using cached chats for session ${sessionId} (${reason}, age: ${Math.round(cacheAge/1000)}s, last fetch: ${Math.round(timeSinceLastFetch/1000)}s ago)`);
         allChats = cached.chats;
       } else {
-        this.logger.log(`Fetching fresh chats for session ${sessionId}`);
+        this.logger.log(`Fetching fresh chats for session ${sessionId} (cache age: ${Math.round(cacheAge/1000)}s, last fetch: ${Math.round(timeSinceLastFetch/1000)}s ago)`);
         
         // Check if the client is still valid before making the call
         if (!session.client.pupPage || session.client.pupPage.isClosed()) {
@@ -295,8 +310,11 @@ export class WhatsappService {
           throw new Error('WhatsApp session has been disconnected. Please reconnect.');
         }
         
+        // Update last fetch time BEFORE making the request to prevent concurrent requests
+        this.lastFetchTime.set(sessionId, Date.now());
+        
         // Add timeout to prevent hanging
-        const FETCH_TIMEOUT = 5000; // Reduced to 5 seconds timeout for faster UX
+        const FETCH_TIMEOUT = 15000; // Increased to 15 seconds to give WhatsApp more time
         const fetchChatsPromise = session.client.getChats();
         
         const timeoutPromise = new Promise((_, reject) => {
@@ -309,15 +327,24 @@ export class WhatsappService {
           this.logger.log(`Starting to fetch chats for session ${sessionId}...`);
           allChats = await Promise.race([fetchChatsPromise, timeoutPromise]) as any[];
           this.logger.log(`Successfully fetched ${allChats.length} total chats from WhatsApp`);
+          
+          // Reset rate limiting on successful fetch
+          this.lastFetchTime.set(sessionId, Date.now());
         } catch (timeoutError) {
           this.logger.error(`Timeout fetching chats for session ${sessionId}:`, timeoutError.message);
           
+          // Implement exponential backoff - increase the minimum interval for this session
+          const currentInterval = MIN_FETCH_INTERVAL;
+          const backoffInterval = Math.min(currentInterval * 2, 300000); // Max 5 minutes
+          this.lastFetchTime.set(sessionId, Date.now() + backoffInterval - MIN_FETCH_INTERVAL);
+          this.logger.warn(`Applied exponential backoff for session ${sessionId}: ${Math.round(backoffInterval/1000)}s`);
+          
           // If it's a timeout, try to use cached data if available
           if (cached) {
-            this.logger.log(`Using stale cached chats due to timeout for session ${sessionId}`);
+            this.logger.log(`Using stale cached chats due to timeout for session ${sessionId} (age: ${Math.round(cacheAge/1000)}s)`);
             allChats = cached.chats;
           } else {
-            throw new Error('WhatsApp is taking too long to respond and no cached data available. Please try again.');
+            throw new Error('WhatsApp is rate limiting requests. Please wait a few minutes before trying again.');
           }
         }
         
@@ -359,12 +386,32 @@ export class WhatsappService {
           }
         }
         
+        // Format last message body for different types (keep simple for chat list)
+        let lastMessageBody = chat.lastMessage?.body || '';
+        if (chat.lastMessage) {
+          if (chat.lastMessage.type === MessageTypes.STICKER) {
+            lastMessageBody = 'Sticker';
+          } else if (chat.lastMessage.type === MessageTypes.IMAGE) {
+            lastMessageBody = lastMessageBody || 'Image';
+          } else if (chat.lastMessage.type === MessageTypes.VIDEO) {
+            lastMessageBody = lastMessageBody || 'Video';
+          } else if (chat.lastMessage.type === MessageTypes.AUDIO || chat.lastMessage.type === MessageTypes.VOICE) {
+            lastMessageBody = lastMessageBody || 'Audio';
+          } else if (chat.lastMessage.type === MessageTypes.DOCUMENT) {
+            lastMessageBody = lastMessageBody || 'Document';
+          } else if (chat.lastMessage.type === MessageTypes.LOCATION) {
+            lastMessageBody = lastMessageBody || 'Location';
+          } else if (chat.lastMessage.type === MessageTypes.CONTACT_CARD || chat.lastMessage.type === MessageTypes.CONTACT_CARD_MULTI) {
+            lastMessageBody = lastMessageBody || 'Contact';
+          }
+        }
+
         return {
           id: chatId,
           name: chat.name || chat.id.user,
           isGroup: chat.isGroup,
           lastMessage: chat.lastMessage ? {
-            body: chat.lastMessage.body,
+            body: lastMessageBody,
             timestamp: chat.lastMessage.timestamp * 1000, // Convert to milliseconds
             fromMe: chat.lastMessage.fromMe
           } : undefined,
@@ -396,7 +443,7 @@ export class WhatsappService {
     }
   }
 
-  async getMessages(sessionId: string, chatId: string, limit: number = 50): Promise<WhatsAppMessage[]> {
+  async getMessages(sessionId: string, chatId: string, limit: number = 50, includeMedia: boolean = true): Promise<WhatsAppMessage[]> {
     const session = this.sessions.get(sessionId);
     
     if (!session || !session.client || session.status !== 'ready') {
@@ -460,15 +507,57 @@ export class WhatsappService {
             }
           }
 
+          // Handle different message types and media
+          let displayBody = message.body;
+          let mediaData = null;
+          
+          // For media messages, try to get the media data (only if requested)
+          if (includeMedia && (message.type === MessageTypes.STICKER || 
+              message.type === MessageTypes.IMAGE || 
+              message.type === MessageTypes.VIDEO)) {
+            try {
+              if (message.hasMedia) {
+                const media = await message.downloadMedia();
+                if (media) {
+                  mediaData = {
+                    data: media.data,
+                    mimetype: media.mimetype,
+                    filename: media.filename
+                  };
+                }
+              }
+            } catch (error) {
+              this.logger.warn(`Failed to download media for message ${message.id._serialized}:`, error.message);
+            }
+          }
+          
+          // Set display text for different message types
+          if (message.type === MessageTypes.STICKER) {
+            displayBody = mediaData ? '' : '🎭 Sticker'; // Empty body if we have media data
+          } else if (message.type === MessageTypes.IMAGE) {
+            displayBody = displayBody || '📷 Image';
+          } else if (message.type === MessageTypes.VIDEO) {
+            displayBody = displayBody || '🎥 Video';
+          } else if (message.type === MessageTypes.AUDIO || message.type === MessageTypes.VOICE) {
+            displayBody = displayBody || '🎵 Audio';
+          } else if (message.type === MessageTypes.DOCUMENT) {
+            displayBody = displayBody || '📄 Document';
+          } else if (message.type === MessageTypes.LOCATION) {
+            displayBody = displayBody || '📍 Location';
+          } else if (message.type === MessageTypes.CONTACT_CARD || message.type === MessageTypes.CONTACT_CARD_MULTI) {
+            displayBody = displayBody || '👤 Contact';
+          }
+
           return {
             id: message.id._serialized,
-            body: message.body,
+            body: displayBody,
             timestamp: message.timestamp * 1000, // Convert to milliseconds
             fromMe: message.fromMe,
             author: message.author || message.from,
             authorName,
             authorNumber,
-            type: message.type
+            type: message.type,
+            mediaData
           };
         })
       );

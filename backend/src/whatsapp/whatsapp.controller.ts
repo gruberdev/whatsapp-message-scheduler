@@ -160,7 +160,8 @@ export class WhatsappController {
   async getMessages(
     @Query('sessionId') sessionId?: string,
     @Query('chatId') chatId?: string,
-    @Query('limit') limit?: string
+    @Query('limit') limit?: string,
+    @Query('includeMedia') includeMedia?: string
   ): Promise<WhatsAppMessage[]> {
     const id = sessionId || 'default';
     
@@ -173,7 +174,8 @@ export class WhatsappController {
 
     try {
       const messageLimit = limit ? parseInt(limit, 10) : 50;
-      return await this.whatsappService.getMessages(id, chatId, messageLimit);
+      const shouldIncludeMedia = includeMedia !== 'false'; // Default to true unless explicitly set to false
+      return await this.whatsappService.getMessages(id, chatId, messageLimit, shouldIncludeMedia);
     } catch (error) {
       throw new HttpException({
         error: 'Failed to get messages',

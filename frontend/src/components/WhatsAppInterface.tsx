@@ -25,6 +25,11 @@ interface WhatsAppMessage {
   authorNumber?: string; // Formatted phone number (only for non-contacts)
   isContact?: boolean; // Whether the author is in user's contacts
   type: string;
+  mediaData?: {
+    data: string; // Base64 encoded media data
+    mimetype: string;
+    filename?: string;
+  };
 }
 
 interface WhatsAppInterfaceProps {
@@ -68,14 +73,14 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     }
   }, [selectedChat?.id]);
 
-  // Polling for chat list updates every 5 seconds - but only update, don't refetch
+  // Polling for chat list updates every 10 seconds - reduced to avoid rate limits
   useEffect(() => {
     // Only start polling after we have initial chats loaded
     if (chats.length === 0) return;
     
     const interval = setInterval(() => {
       updateChats();
-    }, 5000);
+    }, 10000); // Increased from 5s to 30s to reduce API calls
 
     return () => clearInterval(interval);
   }, [sessionId, chats.length]); // Add chats.length as dependency
@@ -85,7 +90,7 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     if (selectedChat) {
       const interval = setInterval(() => {
         updateMessages(selectedChat.id);
-      }, 3000);
+      }, 10000);
 
       return () => clearInterval(interval);
     }
@@ -155,7 +160,7 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
   const updateChats = async () => {
     try {
       // Only update the first page of chats to avoid complexity with pagination
-      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=0&limit=5`);
+      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=0&limit=2`);
       if (response.ok) {
         const data = await response.json();
         
@@ -559,11 +564,27 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
         <div className="p-4 border-b border-[#2a3942]">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-white">Chats</h2>
-            {totalChats > 0 && (
-              <span className="text-sm text-white/60">
-                {chats.length} of {totalChats}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {totalChats > 0 && (
+                <span className="text-sm text-white/60">
+                  {chats.length} of {totalChats}
+                </span>
+              )}
+              <button
+                onClick={() => loadChats(true)}
+                disabled={isLoadingChats}
+                className="w-8 h-8 bg-[#00a884] hover:bg-[#00a884]/90 disabled:bg-[#3b4a54] disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-colors"
+                title="Refresh chats"
+              >
+                {isLoadingChats ? (
+                  <span className="loading loading-spinner loading-xs text-white"></span>
+                ) : (
+                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -727,9 +748,79 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
                               {message.authorName}
                             </p>
                           )}
-                          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
-                            {message.body}
-                          </p>
+                          {/* Message content with special handling for different types */}
+                          {message.type === 'sticker' ? (
+                            message.mediaData ? (
+                              <div className="max-w-[200px]">
+                                <img 
+                                  src={`data:${message.mediaData.mimetype};base64,${message.mediaData.data}`}
+                                  alt="Sticker"
+                                  className="max-w-full h-auto rounded-lg"
+                                  style={{ maxHeight: '200px' }}
+                                />
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="text-2xl">🎭</span>
+                                <span className="text-sm italic text-white/80">Sticker</span>
+                              </div>
+                            )
+                          ) : message.type === 'image' ? (
+                            message.mediaData ? (
+                              <div className="max-w-[300px]">
+                                <img 
+                                  src={`data:${message.mediaData.mimetype};base64,${message.mediaData.data}`}
+                                  alt="Image"
+                                  className="max-w-full h-auto rounded-lg"
+                                  style={{ maxHeight: '300px' }}
+                                />
+                                {message.body && (
+                                  <p className="text-sm mt-2 leading-relaxed break-words whitespace-pre-wrap">
+                                    {message.body}
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">📷</span>
+                                <span className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                                  {message.body}
+                                </span>
+                              </div>
+                            )
+                          ) : message.type === 'video' ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">🎥</span>
+                              <span className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                                {message.body}
+                              </span>
+                            </div>
+                          ) : message.type === 'audio' || message.type === 'ptt' ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">🎵</span>
+                              <span className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                                {message.body}
+                              </span>
+                            </div>
+                          ) : message.type === 'document' ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">📄</span>
+                              <span className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                                {message.body}
+                              </span>
+                            </div>
+                          ) : message.type === 'location' ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">📍</span>
+                              <span className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                                {message.body}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                              {message.body}
+                            </p>
+                          )}
                           <div className="flex items-center justify-end gap-1 mt-1">
                             <span className={`text-xs ${
                               message.fromMe ? 'text-white/70' : 'text-white/60'
