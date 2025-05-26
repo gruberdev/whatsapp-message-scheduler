@@ -241,11 +241,27 @@ export class WhatsappService {
     }
 
     try {
-      // Format phone number (ensure it has country code)
-      const formattedNumber = to.includes('@c.us') ? to : `${to}@c.us`;
+      // Check if it's a group chat ID
+      let formattedNumber;
+      if (to.includes('@g.us')) {
+        formattedNumber = to; // Already in correct format for groups
+      } else {
+        // Format phone number for individual chats (ensure it has country code and @c.us)
+        const cleanNumber = to.replace(/[^0-9]/g, ''); // Remove all non-numeric characters
+        formattedNumber = cleanNumber.includes('@c.us') ? cleanNumber : `${cleanNumber}@c.us`;
+      }
+
+      this.logger.log(`Attempting to send message to ${formattedNumber}`);
+      
+      // Verify chat exists before sending
+      try {
+        await session.client.getChatById(formattedNumber);
+      } catch (error) {
+        throw new Error(`Chat not found. Please make sure the ${to.includes('@g.us') ? 'group' : 'number'} is correct and you are a member of the chat.`);
+      }
       
       const result = await session.client.sendMessage(formattedNumber, message);
-      this.logger.log(`Message sent successfully to ${to}`);
+      this.logger.log(`Message sent successfully to ${formattedNumber}`);
       
       // Invalidate chat cache since we sent a message
       this.chatCache.delete(sessionId);
