@@ -80,28 +80,36 @@ export class WhatsappService {
     this.sessions.set(sessionId, session);
 
     try {
+      // Configure Puppeteer options based on environment
+      const isProd = process.env.NODE_ENV === 'production';
+      const puppeteerConfig = {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
+          '--disable-default-apps',
+          '--use-gl=swiftshader',
+          '--mute-audio'
+        ]
+      };
+
+      // Only set executablePath in production
+      if (isProd) {
+        puppeteerConfig['executablePath'] = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser';
+      }
+
       const client = new Client({
         authStrategy: new LocalAuth({
           clientId: sessionId
         }),
-        puppeteer: {
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-extensions',
-            '--disable-default-apps',
-            '--use-gl=swiftshader',
-            '--mute-audio'
-          ],
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
-        }
+        puppeteer: puppeteerConfig
       });
 
       session.client = client;
