@@ -1,5 +1,23 @@
-# Use Node.js 18 Alpine for smaller image size
-FROM node:18-alpine
+# Build stage
+FROM node:18-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies for building)
+RUN npm ci && npm cache clean --force
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine AS production
 
 # Set working directory
 WORKDIR /app
@@ -21,14 +39,14 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install only production dependencies
 RUN npm ci --only=production && npm cache clean --force
 
-# Copy source code
-COPY . .
+# Copy built application from builder stage
+COPY --from=builder /app/dist ./dist
 
-# Build the application
-RUN npm run build
+# Copy other necessary files
+COPY healthcheck.js ./
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs
