@@ -378,14 +378,16 @@ export class WhatsappService {
       const sessionLastSeen = this.lastSeenMessages.get(sessionId);
       const formattedChats: WhatsAppChat[] = paginatedChats.map((chat: Chat) => {
         const chatId = chat.id._serialized;
-        const lastSeenTimestamp = sessionLastSeen?.get(chatId) || 0; // Default to 0 for new chats
         
-        // Simple unread detection: if last message is not from me and newer than last seen
-        let unreadCount = 0;
-        if (chat.lastMessage && !chat.lastMessage.fromMe) {
+        // Use WhatsApp's built-in unread count, but allow manual override from markChatAsRead
+        let unreadCount = chat.unreadCount || 0;
+        
+        // If we have manually marked this chat as read, override the unread count
+        const lastSeenTimestamp = sessionLastSeen?.get(chatId);
+        if (lastSeenTimestamp && chat.lastMessage && !chat.lastMessage.fromMe) {
           const lastMessageTimestamp = chat.lastMessage.timestamp * 1000;
-          if (lastMessageTimestamp > lastSeenTimestamp) {
-            unreadCount = 1; // Show at least 1 unread message indicator
+          if (lastMessageTimestamp <= lastSeenTimestamp) {
+            unreadCount = 0; // Override to 0 if we've manually marked as read
           }
         }
         
