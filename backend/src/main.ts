@@ -7,8 +7,14 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   // Enable CORS for frontend communication
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://whatsapp-message-scheduler.vercel.app',
+    process.env.FRONTEND_URL
+  ].filter(Boolean); // Remove any undefined values
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
   });
