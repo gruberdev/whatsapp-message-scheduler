@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Query, HttpException, HttpStatus } from '@nestjs/common';
-import { WhatsappService, WhatsAppSession } from './whatsapp.service';
+import { WhatsappService, WhatsAppSession, WhatsAppChat, WhatsAppMessage } from './whatsapp.service';
 
 interface QRResponse {
   status: 'connecting' | 'qr' | 'authenticating' | 'ready' | 'disconnected';
@@ -123,6 +123,165 @@ export class WhatsappController {
     } catch (error) {
       throw new HttpException({
         error: 'Failed to disconnect session',
+        details: error.message
+      }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Get('chats')
+  async getChats(
+    @Query('sessionId') sessionId?: string,
+    @Query('offset') offset?: string,
+    @Query('limit') limit?: string
+  ): Promise<{ chats: WhatsAppChat[], hasMore: boolean, total: number }> {
+    const id = sessionId || 'default';
+    const offsetNum = offset ? parseInt(offset, 10) : 0;
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    
+    try {
+      return await this.whatsappService.getChats(id, offsetNum, limitNum);
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to get chats',
+        details: error.message
+      }, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @Get('messages')
+  async getMessages(
+    @Query('sessionId') sessionId?: string,
+    @Query('chatId') chatId?: string,
+    @Query('limit') limit?: string
+  ): Promise<WhatsAppMessage[]> {
+    const id = sessionId || 'default';
+    
+    if (!chatId) {
+      throw new HttpException(
+        'Missing chatId parameter',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    try {
+      const messageLimit = limit ? parseInt(limit, 10) : 50;
+      return await this.whatsappService.getMessages(id, chatId, messageLimit);
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to get messages',
+        details: error.message
+      }, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @Get('profile-picture')
+  async getProfilePicture(
+    @Query('sessionId') sessionId?: string,
+    @Query('chatId') chatId?: string
+  ): Promise<{ profilePicUrl: string | null }> {
+    const id = sessionId || 'default';
+    
+    if (!chatId) {
+      throw new HttpException(
+        'Missing chatId parameter',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    try {
+      const profilePicUrl = await this.whatsappService.getProfilePicture(id, chatId);
+      return { profilePicUrl };
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to get profile picture',
+        details: error.message
+      }, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @Post('mark-read')
+  async markChatAsRead(@Body() body: { sessionId: string; chatId: string }) {
+    const { sessionId, chatId } = body;
+
+    if (!sessionId || !chatId) {
+      throw new HttpException(
+        'Missing required fields: sessionId, chatId',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    try {
+      await this.whatsappService.markChatAsRead(sessionId, chatId);
+      return {
+        success: true,
+        message: 'Chat marked as read successfully'
+      };
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to mark chat as read',
+        details: error.message
+      }, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+
+
+  @Get('debug-state')
+  async debugClientState(@Query('sessionId') sessionId?: string) {
+    const id = sessionId || 'default';
+    
+    try {
+      const debugInfo = this.whatsappService.debugClientState(id);
+      return debugInfo;
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to get debug info',
+        details: error.message
+      }, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @Post('force-cleanup')
+  async forceCleanupSession(@Body('sessionId') sessionId: string) {
+    if (!sessionId) {
+      throw new HttpException(
+        'Missing sessionId',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    try {
+      await this.whatsappService.forceCleanupSession(sessionId);
+      return {
+        success: true,
+        message: `Session ${sessionId} force cleaned up`
+      };
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to force cleanup session',
+        details: error.message
+      }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post('refresh-cache')
+  async refreshChatCache(@Body('sessionId') sessionId: string) {
+    if (!sessionId) {
+      throw new HttpException(
+        'Missing sessionId',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    try {
+      this.whatsappService.refreshChatCache(sessionId);
+      return {
+        success: true,
+        message: `Chat cache refreshed for session ${sessionId}`
+      };
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to refresh cache',
         details: error.message
       }, HttpStatus.INTERNAL_SERVER_ERROR);
     }

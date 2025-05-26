@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import WhatsAppInterface from '../components/WhatsAppInterface';
 
 interface WhatsAppStatus {
   status: 'connecting' | 'qr' | 'authenticating' | 'ready' | 'disconnected';
@@ -191,30 +192,13 @@ export default function Home() {
     );
   }
 
-  // Success state
+  // Success state - Show WhatsApp Interface
   if (whatsappStatus.status === 'ready') {
     return (
-      <div className="min-h-screen bg-base-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-6xl mb-4">✅</div>
-          <h1 className="text-3xl font-bold text-success mb-4">Connected Successfully!</h1>
-          <p className="text-lg mb-6">Your WhatsApp account is now connected and ready to schedule messages.</p>
-          <div className="space-y-4">
-            <button className="btn btn-primary btn-lg">
-              Start Scheduling Messages
-            </button>
-            <button 
-              className="btn btn-outline btn-error"
-              onClick={handleDisconnect}
-            >
-              Disconnect Session
-            </button>
-            <div className="text-sm text-base-content/60">
-              Session ID: {sessionId}
-            </div>
-          </div>
-        </div>
-      </div>
+      <WhatsAppInterface 
+        sessionId={sessionId} 
+        onDisconnect={handleDisconnect}
+      />
     );
   }
 

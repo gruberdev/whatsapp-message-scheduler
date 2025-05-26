@@ -8,12 +8,15 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [
+      process.env.FRONTEND_URL || 'http://localhost:3000',
+      'http://localhost:3002', // In case frontend runs on different port
+    ],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -24,7 +27,10 @@ export class WhatsappGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private readonly logger = new Logger(WhatsappGateway.name);
 
-  constructor(private readonly whatsappService: WhatsappService) {}
+  constructor(
+    @Inject(forwardRef(() => WhatsappService))
+    private readonly whatsappService: WhatsappService,
+  ) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
@@ -54,6 +60,13 @@ export class WhatsappGateway implements OnGatewayConnection, OnGatewayDisconnect
         qrCode: session.qrCode,
       });
     }
+
+    // Send a test event to confirm connection
+    client.emit('connection-test', {
+      message: 'Socket.IO connection established',
+      sessionId,
+      timestamp: Date.now(),
+    });
   }
 
   @SubscribeMessage('leave-session')
@@ -97,6 +110,23 @@ export class WhatsappGateway implements OnGatewayConnection, OnGatewayDisconnect
       sessionId,
       messageId,
       status,
+    });
+  }
+
+  // Method to broadcast new messages in real-time
+  broadcastNewMessage(sessionId: string, message: any) {
+    this.logger.log(`Broadcasting new message for session ${sessionId} in chat ${message.chatId}`);
+    this.server.to(`session-${sessionId}`).emit('new-message', {
+      sessionId,
+      message,
+    });
+  }
+
+  // Method to broadcast chat list updates
+  broadcastChatListUpdate(sessionId: string) {
+    this.logger.log(`Broadcasting chat list update for session ${sessionId}`);
+    this.server.to(`session-${sessionId}`).emit('chat-list-update', {
+      sessionId,
     });
   }
 }
