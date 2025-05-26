@@ -28,6 +28,9 @@ export interface WhatsAppMessage {
   timestamp: number;
   fromMe: boolean;
   author?: string;
+  authorName?: string; // Display name for group messages
+  authorNumber?: string; // Formatted phone number (only for non-contacts)
+  isContact?: boolean; // Whether the author is in user's contacts
   type: string;
 }
 
@@ -39,6 +42,18 @@ export class WhatsappService {
   private chatCache = new Map<string, { chats: any[], timestamp: number }>(); // sessionId -> cached chats
 
   constructor() {}
+
+  private formatPhoneNumber(rawNumber: string): string {
+    // Remove any non-digit characters
+    const digits = rawNumber.replace(/\D/g, '');
+    
+    // Add + prefix if not present
+    if (!digits.startsWith('+')) {
+      return `+${digits}`;
+    }
+    
+    return digits;
+  }
 
   async createSession(sessionId: string): Promise<WhatsAppSession> {
     this.logger.log(`Creating WhatsApp session: ${sessionId}`);
@@ -113,6 +128,10 @@ export class WhatsappService {
         session.qrCode = undefined; // Clear QR code once authenticated
       });
 
+      client.on('loading_screen', (percent, message) => {
+        this.logger.log(`Loading screen for session ${sessionId}: ${percent}% - ${message}`);
+      });
+
       client.on('auth_failure', (msg: any) => {
         this.logger.error(`Authentication failed for session ${sessionId}:`, msg);
         session.status = 'disconnected';
@@ -130,13 +149,29 @@ export class WhatsappService {
       });
 
       // Initialize the client
+      this.logger.log(`Initializing WhatsApp client for session: ${sessionId}`);
+      
+      // Set a timeout to prevent getting stuck in connecting state
+      const initTimeout = setTimeout(() => {
+        if (session.status === 'connecting') {
+          this.logger.warn(`Session ${sessionId} stuck in connecting state, forcing QR generation`);
+          session.status = 'qr';
+        }
+      }, 30000); // 30 seconds timeout
+
+      // Clear timeout when status changes
+      const originalStatus = session.status;
+      const checkStatusChange = setInterval(() => {
+        if (session.status !== originalStatus && session.status !== 'connecting') {
+          clearTimeout(initTimeout);
+          clearInterval(checkStatusChange);
+        }
+      }, 1000);
+
       await client.initialize();
 
-      // Check if client is already authenticated (for session restoration)
-      if (client.info) {
-        this.logger.log(`Session ${sessionId} restored from existing authentication`);
-        session.status = 'ready';
-      }
+      // The status will be updated by the event listeners
+      // No need to manually check client.info here as it may not be immediately available
 
     } catch (error) {
       this.logger.error('Error creating WhatsApp client:', error);
@@ -151,7 +186,12 @@ export class WhatsappService {
   }
 
   getAllSessions(): WhatsAppSession[] {
-    return Array.from(this.sessions.values());
+    return Array.from(this.sessions.values()).map(session => ({
+      id: session.id,
+      status: session.status,
+      qrCode: session.qrCode
+      // Exclude client object as it's not serializable
+    }));
   }
 
   async sendMessage(sessionId: string, to: string, message: string): Promise<any> {
@@ -239,7 +279,7 @@ export class WhatsappService {
       const cacheKey = sessionId;
       const cached = this.chatCache.get(cacheKey);
       const cacheAge = cached ? Date.now() - cached.timestamp : Infinity;
-      const CACHE_DURATION = 30000; // 30 seconds cache
+      const CACHE_DURATION = 15000; // 15 seconds cache for maximum responsiveness
       
       // Use cache if it's fresh, otherwise fetch new data
       if (cached && cacheAge < CACHE_DURATION) {
@@ -247,21 +287,54 @@ export class WhatsappService {
         allChats = cached.chats;
       } else {
         this.logger.log(`Fetching fresh chats for session ${sessionId}`);
-        allChats = await session.client.getChats();
-        this.logger.log(`Fetched ${allChats.length} total chats from WhatsApp`);
         
-        // Sort and cache
-        allChats.sort((a, b) => {
-          const aTime = a.lastMessage?.timestamp || 0;
-          const bTime = b.lastMessage?.timestamp || 0;
-          return bTime - aTime;
+        // Check if the client is still valid before making the call
+        if (!session.client.pupPage || session.client.pupPage.isClosed()) {
+          this.logger.error(`Session ${sessionId} has invalid or closed browser page`);
+          await this.forceCleanupSession(sessionId);
+          throw new Error('WhatsApp session has been disconnected. Please reconnect.');
+        }
+        
+        // Add timeout to prevent hanging
+        const FETCH_TIMEOUT = 5000; // Reduced to 5 seconds timeout for faster UX
+        const fetchChatsPromise = session.client.getChats();
+        
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('Timeout: WhatsApp took too long to respond. Please try again.'));
+          }, FETCH_TIMEOUT);
         });
         
-        // Cache the sorted chats
-        this.chatCache.set(cacheKey, {
-          chats: allChats,
-          timestamp: Date.now()
-        });
+        try {
+          this.logger.log(`Starting to fetch chats for session ${sessionId}...`);
+          allChats = await Promise.race([fetchChatsPromise, timeoutPromise]) as any[];
+          this.logger.log(`Successfully fetched ${allChats.length} total chats from WhatsApp`);
+        } catch (timeoutError) {
+          this.logger.error(`Timeout fetching chats for session ${sessionId}:`, timeoutError.message);
+          
+          // If it's a timeout, try to use cached data if available
+          if (cached) {
+            this.logger.log(`Using stale cached chats due to timeout for session ${sessionId}`);
+            allChats = cached.chats;
+          } else {
+            throw new Error('WhatsApp is taking too long to respond and no cached data available. Please try again.');
+          }
+        }
+        
+        // Sort and cache only if we got fresh data
+        if (!cached || allChats !== cached.chats) {
+          allChats.sort((a, b) => {
+            const aTime = a.lastMessage?.timestamp || 0;
+            const bTime = b.lastMessage?.timestamp || 0;
+            return bTime - aTime;
+          });
+          
+          // Cache the sorted chats
+          this.chatCache.set(cacheKey, {
+            chats: allChats,
+            timestamp: Date.now()
+          });
+        }
       }
 
       // Apply pagination efficiently
@@ -272,9 +345,9 @@ export class WhatsappService {
         this.lastSeenMessages.set(sessionId, new Map());
       }
 
+      const sessionLastSeen = this.lastSeenMessages.get(sessionId);
       const formattedChats: WhatsAppChat[] = paginatedChats.map((chat: Chat) => {
         const chatId = chat.id._serialized;
-        const sessionLastSeen = this.lastSeenMessages.get(sessionId);
         const lastSeenTimestamp = sessionLastSeen?.get(chatId) || 0; // Default to 0 for new chats
         
         // Simple unread detection: if last message is not from me and newer than last seen
@@ -311,6 +384,14 @@ export class WhatsappService {
       };
     } catch (error) {
       this.logger.error(`Error getting chats for session ${sessionId}:`, error);
+      
+      // Check if this is a session closed error
+      if (error.message && error.message.includes('Session closed')) {
+        this.logger.warn(`Detected closed session ${sessionId}, cleaning up`);
+        await this.forceCleanupSession(sessionId);
+        throw new Error('WhatsApp session has been disconnected. Please reconnect.');
+      }
+      
       throw error;
     }
   }
@@ -323,17 +404,74 @@ export class WhatsappService {
     }
 
     try {
-      const chat = await session.client.getChatById(chatId);
-      const messages = await chat.fetchMessages({ limit });
+      // Check if the client is still valid before making the call
+      if (!session.client.pupPage || session.client.pupPage.isClosed()) {
+        this.logger.error(`Session ${sessionId} has invalid or closed browser page`);
+        await this.forceCleanupSession(sessionId);
+        throw new Error('WhatsApp session has been disconnected. Please reconnect.');
+      }
 
-      const formattedMessages: WhatsAppMessage[] = messages.map((message: Message) => ({
-        id: message.id._serialized,
-        body: message.body,
-        timestamp: message.timestamp * 1000, // Convert to milliseconds
-        fromMe: message.fromMe,
-        author: message.author || message.from,
-        type: message.type
-      }));
+      const chat = await session.client.getChatById(chatId);
+      
+      // Add timeout to prevent hanging when fetching messages
+      const FETCH_TIMEOUT = 5000; // Reduced to 5 seconds timeout for faster UX
+      const fetchMessagesPromise = chat.fetchMessages({ limit });
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Timeout: WhatsApp took too long to fetch messages. Please try again.'));
+        }, FETCH_TIMEOUT);
+      });
+      
+      const messages = await Promise.race([fetchMessagesPromise, timeoutPromise]) as any[];
+
+      const formattedMessages: WhatsAppMessage[] = await Promise.all(
+        messages.map(async (message: Message) => {
+          let authorName: string | undefined;
+          let authorNumber: string | undefined;
+          
+          // For group messages that are not from me, get the contact name and number
+          if (chat.isGroup && !message.fromMe && message.author) {
+            try {
+              const contact = await session.client.getContactById(message.author);
+              const rawNumber = message.author.replace('@c.us', '');
+              const formattedNumber = this.formatPhoneNumber(rawNumber);
+              
+              // Check if this person is in contacts (has a saved name)
+              const isInContacts = !!(contact.name || contact.pushname);
+              
+              if (isInContacts) {
+                // Person is in contacts - show just their contact name
+                const contactName = contact.name || contact.pushname;
+                authorName = contactName;
+                authorNumber = undefined; // Don't show separate number line
+              } else {
+                // Person is NOT in contacts - show "~ pushname +number" format like official WhatsApp
+                const pushname = contact.pushname || 'Unknown';
+                authorName = `~ ${pushname} ${formattedNumber}`;
+                authorNumber = undefined; // Don't show separate number line
+              }
+            } catch (error) {
+              // If we can't get contact info, treat as non-contact
+              const rawNumber = message.author.replace('@c.us', '');
+              const formattedNumber = this.formatPhoneNumber(rawNumber);
+              authorName = formattedNumber;
+              authorNumber = undefined;
+            }
+          }
+
+          return {
+            id: message.id._serialized,
+            body: message.body,
+            timestamp: message.timestamp * 1000, // Convert to milliseconds
+            fromMe: message.fromMe,
+            author: message.author || message.from,
+            authorName,
+            authorNumber,
+            type: message.type
+          };
+        })
+      );
 
       // fetchMessages returns newest first, but we want newest at bottom for chat display
       // So we keep the reverse to show oldest first, then newest at bottom
@@ -344,6 +482,14 @@ export class WhatsappService {
       return formattedMessages;
     } catch (error) {
       this.logger.error(`Error getting messages for chat ${chatId} in session ${sessionId}:`, error);
+      
+      // Check if this is a session closed error
+      if (error.message && error.message.includes('Session closed')) {
+        this.logger.warn(`Detected closed session ${sessionId}, cleaning up`);
+        await this.forceCleanupSession(sessionId);
+        throw new Error('WhatsApp session has been disconnected. Please reconnect.');
+      }
+      
       throw error;
     }
   }

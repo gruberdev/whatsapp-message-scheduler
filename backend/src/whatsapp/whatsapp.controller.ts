@@ -76,7 +76,15 @@ export class WhatsappController {
 
   @Get('sessions')
   async getAllSessions(): Promise<WhatsAppSession[]> {
-    return this.whatsappService.getAllSessions();
+    try {
+      const sessions = this.whatsappService.getAllSessions();
+      return sessions;
+    } catch (error) {
+      throw new HttpException({
+        error: 'Failed to get sessions',
+        details: error.message
+      }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   @Post('send')
@@ -224,21 +232,19 @@ export class WhatsappController {
     }
   }
 
-
-
   @Get('debug-state')
-  async debugClientState(@Query('sessionId') sessionId?: string) {
-    const id = sessionId || 'default';
-    
-    try {
-      const debugInfo = this.whatsappService.debugClientState(id);
-      return debugInfo;
-    } catch (error) {
-      throw new HttpException({
-        error: 'Failed to get debug info',
-        details: error.message
-      }, HttpStatus.BAD_REQUEST);
-    }
+  debugClientState(@Query('sessionId') sessionId: string) {
+    return this.whatsappService.debugClientState(sessionId);
+  }
+
+  @Get('health')
+  healthCheck() {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memory: process.memoryUsage()
+    };
   }
 
   @Post('force-cleanup')

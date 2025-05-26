@@ -21,6 +21,9 @@ interface WhatsAppMessage {
   timestamp: number;
   fromMe: boolean;
   author?: string;
+  authorName?: string; // Display name for group messages
+  authorNumber?: string; // Formatted phone number (only for non-contacts)
+  isContact?: boolean; // Whether the author is in user's contacts
   type: string;
 }
 
@@ -45,6 +48,14 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
 
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
+  // Handle session disconnection
+  const handleSessionDisconnected = () => {
+    // Clear the stored session ID to force a new session
+    localStorage.removeItem('whatsapp-session-id');
+    // Trigger the parent component to restart the connection process
+    onDisconnect();
+  };
+
   // Load chats on component mount
   useEffect(() => {
     loadChats();
@@ -57,7 +68,19 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     }
   }, [selectedChat?.id]);
 
-  // Polling for message updates every 3 seconds
+  // Polling for chat list updates every 5 seconds - but only update, don't refetch
+  useEffect(() => {
+    // Only start polling after we have initial chats loaded
+    if (chats.length === 0) return;
+    
+    const interval = setInterval(() => {
+      updateChats();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [sessionId, chats.length]); // Add chats.length as dependency
+
+  // Polling for message updates every 3 seconds (only when a chat is selected)
   useEffect(() => {
     if (selectedChat) {
       const interval = setInterval(() => {
@@ -67,8 +90,6 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
       return () => clearInterval(interval);
     }
   }, [selectedChat?.id]);
-
-
 
   const loadChats = async (reset: boolean = true) => {
     if (reset) {
@@ -80,9 +101,18 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     
     try {
       const offset = reset ? 0 : chats.length;
-      const limit = reset ? 20 : 10; // Load 20 initially, then 10 more
+      const limit = reset ? 20 : 10; // Load 3 initially, then 3 more for maximum speed
       
-      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=${offset}&limit=${limit}`);
+      // Add timeout to frontend request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=${offset}&limit=${limit}`, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
       if (response.ok) {
         const data = await response.json();
         
@@ -95,10 +125,23 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
         setHasMoreChats(data.hasMore);
         setTotalChats(data.total);
       } else {
-        console.error('Failed to load chats');
+        const errorData = await response.json();
+        console.error('Failed to load chats:', errorData);
+        
+        // Check if this is a session disconnected error
+        if (errorData.details && errorData.details.includes('WhatsApp session has been disconnected')) {
+          console.log('Session disconnected, triggering reconnection...');
+          handleSessionDisconnected();
+          return;
+        }
       }
     } catch (error) {
-      console.error('Error loading chats:', error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error('Request timed out while loading chats');
+        // Don't trigger reconnection for timeouts, just show error
+      } else {
+        console.error('Error loading chats:', error);
+      }
     } finally {
       if (reset) {
         setIsLoadingChats(false);
@@ -112,14 +155,36 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
   const updateChats = async () => {
     try {
       // Only update the first page of chats to avoid complexity with pagination
-      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=0&limit=20`);
+      const response = await fetch(`${backendUrl}/api/whatsapp/chats?sessionId=${sessionId}&offset=0&limit=5`);
       if (response.ok) {
         const data = await response.json();
         
         setChats(prevChats => {
-          // If no previous chats, just set the new ones
+          // If no previous chats, just set the new ones (shouldn't happen in polling)
           if (prevChats.length === 0) {
             return data.chats;
+          }
+          
+          // Check if there are any actual changes before updating
+          const hasChanges = data.chats.some((newChat: WhatsAppChat) => {
+            const existingChat = prevChats.find(chat => chat.id === newChat.id);
+            if (!existingChat) return true; // New chat
+            
+            // Check if last message or unread count changed
+            const lastMessageChanged = 
+              (!existingChat.lastMessage && newChat.lastMessage) ||
+              (existingChat.lastMessage && !newChat.lastMessage) ||
+              (existingChat.lastMessage && newChat.lastMessage && 
+               existingChat.lastMessage.timestamp !== newChat.lastMessage.timestamp);
+            
+            const unreadCountChanged = existingChat.unreadCount !== newChat.unreadCount;
+            
+            return lastMessageChanged || unreadCountChanged;
+          });
+          
+          // Only update if there are actual changes
+          if (!hasChanges) {
+            return prevChats;
           }
           
           // Update existing chats with new data (last messages, unread counts)
@@ -139,12 +204,12 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
             };
           });
           
-          // Add any new chats that weren't in the previous list
+          // Add any existing chats that weren't in the new list (for pagination)
           const newChatIds = data.chats.map((chat: WhatsAppChat) => chat.id);
-          const existingNewChats = prevChats.filter(chat => !newChatIds.includes(chat.id));
+          const existingOtherChats = prevChats.filter(chat => !newChatIds.includes(chat.id));
           
           // Combine and sort by last message timestamp
-          const allChats = [...updatedChats, ...existingNewChats];
+          const allChats = [...updatedChats, ...existingOtherChats];
           allChats.sort((a, b) => {
             const aTime = a.lastMessage?.timestamp || 0;
             const bTime = b.lastMessage?.timestamp || 0;
@@ -158,7 +223,15 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
         setHasMoreChats(data.hasMore);
         setTotalChats(data.total);
       } else {
-        console.error('Failed to update chats');
+        const errorData = await response.json();
+        console.error('Failed to update chats:', errorData);
+        
+        // Check if this is a session disconnected error
+        if (errorData.details && errorData.details.includes('WhatsApp session has been disconnected')) {
+          console.log('Session disconnected while updating chats, triggering reconnection...');
+          handleSessionDisconnected();
+          return;
+        }
       }
     } catch (error) {
       console.error('Error updating chats:', error);
@@ -179,7 +252,15 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
         // Scroll to bottom after messages load
         setTimeout(scrollToBottom, 100);
       } else {
-        console.error('Failed to load messages');
+        const errorData = await response.json();
+        console.error('Failed to load messages:', errorData);
+        
+        // Check if this is a session disconnected error
+        if (errorData.details && errorData.details.includes('WhatsApp session has been disconnected')) {
+          console.log('Session disconnected while loading messages, triggering reconnection...');
+          handleSessionDisconnected();
+          return;
+        }
       }
     } catch (error) {
       console.error('Error loading messages:', error);
@@ -226,7 +307,15 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
           return prevMessages;
         });
       } else {
-        console.error('Failed to update messages');
+        const errorData = await response.json();
+        console.error('Failed to update messages:', errorData);
+        
+        // Check if this is a session disconnected error
+        if (errorData.details && errorData.details.includes('WhatsApp session has been disconnected')) {
+          console.log('Session disconnected while updating messages, triggering reconnection...');
+          handleSessionDisconnected();
+          return;
+        }
       }
     } catch (error) {
       console.error('Error updating messages:', error);
@@ -305,8 +394,6 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     }
   };
 
-
-
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -335,6 +422,37 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     });
   };
 
+  // Generate consistent color for each contact name
+  const getContactColor = (authorName: string) => {
+    // WhatsApp-style colors for contact names
+    const colors = [
+      '#00a884', // WhatsApp green
+      '#ff6b35', // Orange
+      '#f7931e', // Amber
+      '#25d366', // Light green
+      '#128c7e', // Teal
+      '#075e54', // Dark teal
+      '#34b7f1', // Blue
+      '#7c4dff', // Purple
+      '#e91e63', // Pink
+      '#ff5722', // Deep orange
+      '#795548', // Brown
+      '#607d8b', // Blue grey
+    ];
+    
+    // Create a simple hash from the name to ensure consistency
+    let hash = 0;
+    for (let i = 0; i < authorName.length; i++) {
+      const char = authorName.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    // Use absolute value and modulo to get a color index
+    const colorIndex = Math.abs(hash) % colors.length;
+    return colors[colorIndex];
+  };
+
   // Custom hook for profile picture loading
   const useProfilePicture = (chatId: string) => {
     const [loading, setLoading] = useState(false);
@@ -342,39 +460,39 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
 
     const profilePicUrl = profilePictures[chatId];
 
-          useEffect(() => {
-        if (profilePictures[chatId] === undefined && !loading) {
-          setLoading(true);
-          setError(false);
-          
-          const url = `${backendUrl}/api/whatsapp/profile-picture?sessionId=${sessionId}&chatId=${encodeURIComponent(chatId)}`;
-          
-          fetch(url)
-            .then(response => {
-              if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-              }
-              return response.json();
-            })
-            .then(data => {
-              setProfilePictures(prev => ({
-                ...prev,
-                [chatId]: data.profilePicUrl || ''
-              }));
-            })
-            .catch(err => {
-              console.error(`Failed to load profile picture for ${chatId}:`, err);
-              setError(true);
-              setProfilePictures(prev => ({
-                ...prev,
-                [chatId]: ''
-              }));
-            })
-            .finally(() => {
-              setLoading(false);
-            });
-        }
-      }, [chatId, loading]);
+    useEffect(() => {
+      if (profilePictures[chatId] === undefined && !loading) {
+        setLoading(true);
+        setError(false);
+        
+        const url = `${backendUrl}/api/whatsapp/profile-picture?sessionId=${sessionId}&chatId=${encodeURIComponent(chatId)}`;
+        
+        fetch(url)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            setProfilePictures(prev => ({
+              ...prev,
+              [chatId]: data.profilePicUrl || ''
+            }));
+          })
+          .catch(err => {
+            console.error(`Failed to load profile picture for ${chatId}:`, err);
+            setError(true);
+            setProfilePictures(prev => ({
+              ...prev,
+              [chatId]: ''
+            }));
+          })
+          .finally(() => {
+            setLoading(false);
+          });
+      }
+    }, [chatId, loading]);
 
     return { profilePicUrl, loading, error };
   };
@@ -386,8 +504,6 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
     
     const isSmall = size.includes('w-10');
     const textSize = isSmall ? 'text-sm' : 'text-lg';
-
-
 
     return (
       <div className={`${size} bg-[#3b4a54] rounded-full flex items-center justify-center overflow-hidden relative`}>
@@ -560,8 +676,21 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
                   {messages.map((message, index) => {
                     const prevMessage = index > 0 ? messages[index - 1] : null;
                     const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
-                    const isFirstInGroup = !prevMessage || prevMessage.fromMe !== message.fromMe;
-                    const isLastInGroup = !nextMessage || nextMessage.fromMe !== message.fromMe;
+                    
+                    // Group logic: same person if fromMe status and author match
+                    const isSameAuthorAsPrev = prevMessage && 
+                      prevMessage.fromMe === message.fromMe && 
+                      (message.fromMe || prevMessage.author === message.author);
+                    
+                    const isSameAuthorAsNext = nextMessage && 
+                      nextMessage.fromMe === message.fromMe && 
+                      (message.fromMe || nextMessage.author === message.author);
+                    
+                    const isFirstInGroup = !isSameAuthorAsPrev;
+                    const isLastInGroup = !isSameAuthorAsNext;
+                    
+                    // Show author name only for the first message in a group
+                    const shouldShowAuthor = selectedChat?.isGroup && !message.fromMe && message.authorName && isFirstInGroup;
                     
                     return (
                       <div
@@ -589,6 +718,15 @@ export default function WhatsAppInterface({ sessionId, onDisconnect }: WhatsAppI
                               : ''
                           }`}
                         >
+                          {/* Author name for group messages - only show on first message in group */}
+                          {shouldShowAuthor && (
+                            <p 
+                              className="text-xs font-semibold mb-1"
+                              style={{ color: getContactColor(message.authorName || '') }}
+                            >
+                              {message.authorName}
+                            </p>
+                          )}
                           <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
                             {message.body}
                           </p>
