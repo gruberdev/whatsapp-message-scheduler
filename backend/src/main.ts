@@ -9,7 +9,7 @@ async function bootstrap() {
   // Enable CORS for frontend communication
   const allowedOrigins = [
     'http://localhost:3000',
-    'whatsapp-message-scheduler-frontend.vercel.app',
+    'https://whatsapp-message-scheduler-frontend.vercel.app',
     process.env.FRONTEND_URL
   ].filter(Boolean); // Remove any undefined values
 
